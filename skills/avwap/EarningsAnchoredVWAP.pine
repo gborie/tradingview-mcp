@@ -36,7 +36,9 @@ if armed and not na(earnDay) and not na(dayStamp) and dayStamp > earnDay
     armed   := false
 anchor = extraShift ? shifted : isEarn
 
-// Cumulative VWAP since the MOST RECENT anchor; arrays hold ONLY the current leg
+// VWAP since the MOST RECENT anchor. Nothing accumulates or draws until the FIRST
+// earnings anchor exists — so symbols with no earnings (ETFs, indices) show nothing.
+var bool  hasAnchor = false
 var float sPV  = 0.0
 var float sV   = 0.0
 var float sPV2 = 0.0
@@ -44,23 +46,25 @@ var pMain = array.new<chart.point>()
 var pUp   = array.new<chart.point>()
 var pLo   = array.new<chart.point>()
 if anchor
+    hasAnchor := true
     sPV  := 0.0
     sV   := 0.0
     sPV2 := 0.0
     array.clear(pMain)
     array.clear(pUp)
     array.clear(pLo)
-vol = na(volume) ? 0.0 : volume
-sPV  += src * vol
-sV   += vol
-sPV2 += src * src * vol
-vwap = sV > 0 ? sPV / sV : na
-dev  = sV > 0 ? math.sqrt(math.max(sPV2 / sV - vwap * vwap, 0.0)) : na
-if not na(vwap)
-    array.push(pMain, chart.point.from_index(bar_index, vwap))
-    if showBands and not na(dev)
-        array.push(pUp, chart.point.from_index(bar_index, vwap + mult * dev))
-        array.push(pLo, chart.point.from_index(bar_index, vwap - mult * dev))
+if hasAnchor
+    vol = na(volume) ? 0.0 : volume
+    sPV  += src * vol
+    sV   += vol
+    sPV2 += src * src * vol
+    vwap = sV > 0 ? sPV / sV : na
+    dev  = sV > 0 ? math.sqrt(math.max(sPV2 / sV - vwap * vwap, 0.0)) : na
+    if not na(vwap)
+        array.push(pMain, chart.point.from_index(bar_index, vwap))
+        if showBands and not na(dev)
+            array.push(pUp, chart.point.from_index(bar_index, vwap + mult * dev))
+            array.push(pLo, chart.point.from_index(bar_index, vwap - mult * dev))
 
 // Draw only the current leg, refreshed on the last bar
 var polyline glMain = na
