@@ -6,6 +6,25 @@ import { waitForChartReady as _waitForChartReady } from '../wait.js';
 
 const CHART_API = 'window.TradingViewApi._activeChartWidgetWV.value()';
 
+/**
+ * Build a JS snippet that binds `var chart` to the target pane's chart API.
+ * When chart_index is omitted, targets the active pane (legacy behavior).
+ * When provided, uses the public TradingViewApi.chart(idx) accessor and
+ * early-returns { error } from the enclosing IIFE if the index is out of range.
+ */
+function chartAcq(chart_index) {
+  if (chart_index === undefined || chart_index === null || chart_index === '') {
+    return `var chart = ${CHART_API};`;
+  }
+  const idx = Number(chart_index);
+  if (!Number.isInteger(idx) || idx < 0) {
+    throw new Error(`chart_index must be a non-negative integer (0 = first pane), got: ${chart_index}`);
+  }
+  return `var __all = window.TradingViewApi._chartWidgetCollection.getAll();
+      if (${idx} >= __all.length) return { error: 'chart_index ${idx} out of range (have ' + __all.length + ' pane(s))' };
+      var chart = window.TradingViewApi.chart(${idx});`;
+}
+
 function _resolve(deps) {
   return {
     evaluate: deps?.evaluate || _evaluate,
@@ -14,11 +33,12 @@ function _resolve(deps) {
   };
 }
 
-export async function getState({ _deps } = {}) {
+export async function getState({ chart_index, _deps } = {}) {
   const { evaluate } = _resolve(_deps);
+  const acq = chartAcq(chart_index);
   const state = await evaluate(`
     (function() {
-      var chart = ${CHART_API};
+      ${acq}
       var studies = [];
       try {
         var allStudies = chart.getAllStudies();
@@ -34,7 +54,8 @@ export async function getState({ _deps } = {}) {
       };
     })()
   `);
-  return { success: true, ...state };
+  if (state && state.error) throw new Error(state.error);
+  return { success: true, ...(chart_index === undefined || chart_index === null || chart_index === '' ? {} : { chart_index: Number(chart_index) }), ...state };
 }
 
 export async function setSymbol({ symbol, _deps }) {
@@ -84,32 +105,40 @@ export async function setType({ chart_type, _deps }) {
   return { success: true, chart_type, type_num: typeNum };
 }
 
-export async function manageIndicator({ action, indicator, entity_id, inputs: inputsRaw, _deps }) {
+export async function manageIndicator({ action, indicator, entity_id, inputs: inputsRaw, chart_index, _deps }) {
   const { evaluate } = _resolve(_deps);
   const inputs = inputsRaw ? (typeof inputsRaw === 'string' ? JSON.parse(inputsRaw) : inputsRaw) : undefined;
+  const acq = chartAcq(chart_index);
+  const paneOut = (chart_index === undefined || chart_index === null || chart_index === '') ? {} : { chart_index: Number(chart_index) };
 
   if (action === 'add') {
     const inputArr = inputs ? Object.entries(inputs).map(([k, v]) => ({ id: k, value: v })) : [];
-    const before = await evaluate(`${CHART_API}.getAllStudies().map(function(s) { return s.id; })`);
-    await evaluate(`
+    const before = await evaluate(`(function() { ${acq} return chart.getAllStudies().map(function(s) { return s.id; }); })()`);
+    if (before && before.error) throw new Error(before.error);
+    const created = await evaluate(`
       (function() {
-        var chart = ${CHART_API};
+        ${acq}
         chart.createStudy(${safeString(indicator)}, false, false, ${JSON.stringify(inputArr)});
+        return { ok: true };
       })()
     `);
+    if (created && created.error) throw new Error(created.error);
     await new Promise(r => setTimeout(r, 1500));
-    const after = await evaluate(`${CHART_API}.getAllStudies().map(function(s) { return s.id; })`);
+    const after = await evaluate(`(function() { ${acq} return chart.getAllStudies().map(function(s) { return s.id; }); })()`);
+    if (after && after.error) throw new Error(after.error);
     const newIds = (after || []).filter(id => !(before || []).includes(id));
-    return { success: newIds.length > 0, action: 'add', indicator, entity_id: newIds[0] || null, new_study_count: newIds.length };
+    return { success: newIds.length > 0, action: 'add', indicator, ...paneOut, entity_id: newIds[0] || null, new_study_count: newIds.length };
   } else if (action === 'remove') {
     if (!entity_id) throw new Error('entity_id required for remove action. Use chart_get_state to find study IDs.');
-    await evaluate(`
+    const removed = await evaluate(`
       (function() {
-        var chart = ${CHART_API};
+        ${acq}
         chart.removeEntity(${safeString(entity_id)});
+        return { ok: true };
       })()
     `);
-    return { success: true, action: 'remove', entity_id };
+    if (removed && removed.error) throw new Error(removed.error);
+    return { success: true, action: 'remove', entity_id, ...paneOut };
   } else {
     throw new Error('action must be "add" or "remove"');
   }
