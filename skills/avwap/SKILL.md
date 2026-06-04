@@ -5,14 +5,25 @@ description: Add (or re-anchor) an Anchored VWAP on one or more chart panes, anc
 
 # Anchored VWAP Workflow
 
-Add an **Anchored VWAP** to one or more panes and anchor it to a precise point in time.
-The hard part is (1) picking the right anchor timestamp and (2) targeting the right pane
-reliably — both are handled below.
+Add an **Anchored VWAP** to one or more panes and anchor it to a precise point in time,
+for **any symbol**. The hard parts are (1) pointing the chart at the right symbol,
+(2) picking the right anchor timestamp, and (3) targeting the right pane reliably — all
+handled below.
+
+### Arguments (all optional, order-independent)
+
+- **symbol** — e.g. `MU`, `AAPL`, `NASDAQ:MU`. If omitted, use whatever the chart shows now.
+- **anchor** — `earnings` (default), a date like `2026-03-20`, or `swing low` / `swing high`.
+- **panes** — `all` (default), or a timeframe list like `daily,65m` / `weekly`.
 
 Typical invocations:
-- `/avwap DELL earnings` — anchor to the most recent earnings (with the after-hours rule)
-- `/avwap 2025-04-08` — anchor to a specific date on the current symbol
-- `/avwap DELL earnings daily,65m` — only the Daily and 65-min panes
+- `/avwap MU earnings` — switch the chart to MU, anchor each pane to MU's last earnings
+- `/avwap MU 2026-03-20` — MU, anchored to a specific date
+- `/avwap earnings daily,65m` — current symbol, only the Daily and 65-min panes
+- `/avwap AAPL swing low weekly` — AAPL, anchored to the recent swing low, weekly only
+
+The anchor is **per-symbol** — MU's earnings/swing are not DELL's. Always resolve the
+anchor against the symbol you end up on (Step 1), never carry one symbol's date to another.
 
 ## Step 0: Read the layout
 
@@ -25,7 +36,19 @@ Decide which panes to act on:
 - a timeframe list (e.g. "daily, 65m") → match against each pane's `resolution`
   (`1D`=daily, `1W`=weekly, `65`=65-min, `60`=hourly, etc.)
 
-## Step 1: Resolve the anchor timestamp (Unix MILLISECONDS)
+## Step 1: Point the chart at the target symbol
+
+If the user named a symbol and it differs from what the panes show:
+- **Symbol-linked layout** (panes share one symbol — common here): set it once with
+  `chart_set_symbol` and all panes follow. Clicking the ticker in the watchlist works too.
+- **Not linked**: set each target pane individually with `pane_set_symbol`
+  (`index`, `symbol`).
+
+Then re-read with `pane_list` / `chart_get_state` to confirm the panes now show the
+intended symbol before resolving the anchor. If no symbol was given, just use the current
+one. Use an exchange-prefixed symbol if a bare ticker is ambiguous (e.g. `NASDAQ:MU`).
+
+## Step 2: Resolve the anchor timestamp (Unix MILLISECONDS)
 
 The Anchored VWAP input is `start_time`, in **Unix milliseconds** (Pine `time`).
 Compute it cross-platform with node:
@@ -49,7 +72,7 @@ Anchor selection:
 - **Swing low/high** — pull `data_get_ohlcv` for the relevant pane and pick the bar;
   use its timestamp (convert seconds→ms if needed).
 
-## Step 2: Add or re-anchor, per pane (idempotent)
+## Step 3: Add or re-anchor, per pane (idempotent)
 
 For each target pane `i`:
 
@@ -67,7 +90,7 @@ For each target pane `i`:
 (`chart_manage_indicator`/`indicator_set_inputs` accept `chart_index`). If the tool
 rejects the param, the server predates that change and must be restarted/updated.
 
-## Step 3: Verify and report
+## Step 4: Verify and report
 
 - `capture_screenshot` (region "full") to confirm the VWAP and its bands render from the
   anchor forward.
