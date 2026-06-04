@@ -1,0 +1,78 @@
+//@version=5
+indicator("Earnings-Anchored VWAP", "EARN-VWAP", overlay=true, max_polylines_count=8)
+
+// Auto-anchored VWAP that resets at the CURRENT symbol's most recent earnings.
+// Works for any ticker you select — reads that symbol's own earnings via
+// request.earnings(), which fires on the post-release session (so after-hours
+// reports are already anchored to the reaction day; no manual shift needed).
+//
+// Notes:
+// - Only as good as TradingView's earnings data. For symbols where TV has no
+//   earnings, nothing draws. If a symbol's data lands a day early, enable the
+//   "+1 session" toggle.
+// - Draws only the most recent leg (a single clean line), not the historical
+//   sawtooth of every past earnings period.
+
+extraShift = input.bool(false, "Shift +1 session (only if the anchor lands a day early)")
+showBands  = input.bool(true,  "Show ±σ bands")
+mult       = input.float(1.0,  "Band multiplier", minval=0.0, step=0.5)
+src        = input.source(hlc3, "Source")
+col        = input.color(color.orange, "Color")
+
+// request.earnings already reports on the post-release session (handles after-hours)
+e = request.earnings(syminfo.tickerid, earnings.actual, gaps = barmerge.gaps_on, ignore_invalid_symbol = true)
+isEarn = not na(e)
+
+// Anchor ON the earnings bar by default; optional +1 session for edge cases
+dayStamp = time("D")
+var float earnDay = na
+var bool  armed   = false
+if isEarn
+    earnDay := dayStamp
+    armed   := true
+shifted = false
+if armed and not na(earnDay) and not na(dayStamp) and dayStamp > earnDay
+    shifted := true
+    armed   := false
+anchor = extraShift ? shifted : isEarn
+
+// Cumulative VWAP since the MOST RECENT anchor; arrays hold ONLY the current leg
+var float sPV  = 0.0
+var float sV   = 0.0
+var float sPV2 = 0.0
+var pMain = array.new<chart.point>()
+var pUp   = array.new<chart.point>()
+var pLo   = array.new<chart.point>()
+if anchor
+    sPV  := 0.0
+    sV   := 0.0
+    sPV2 := 0.0
+    array.clear(pMain)
+    array.clear(pUp)
+    array.clear(pLo)
+vol = na(volume) ? 0.0 : volume
+sPV  += src * vol
+sV   += vol
+sPV2 += src * src * vol
+vwap = sV > 0 ? sPV / sV : na
+dev  = sV > 0 ? math.sqrt(math.max(sPV2 / sV - vwap * vwap, 0.0)) : na
+if not na(vwap)
+    array.push(pMain, chart.point.from_index(bar_index, vwap))
+    if showBands and not na(dev)
+        array.push(pUp, chart.point.from_index(bar_index, vwap + mult * dev))
+        array.push(pLo, chart.point.from_index(bar_index, vwap - mult * dev))
+
+// Draw only the current leg, refreshed on the last bar
+var polyline glMain = na
+var polyline glUp   = na
+var polyline glLo   = na
+if barstate.islast
+    polyline.delete(glMain)
+    polyline.delete(glUp)
+    polyline.delete(glLo)
+    if array.size(pMain) > 1
+        glMain := polyline.new(pMain, xloc = xloc.bar_index, line_color = col, line_width = 2)
+        if showBands and array.size(pUp) > 1
+            bcol = color.new(col, 55)
+            glUp := polyline.new(pUp, xloc = xloc.bar_index, line_color = bcol, line_width = 1)
+            glLo := polyline.new(pLo, xloc = xloc.bar_index, line_color = bcol, line_width = 1)

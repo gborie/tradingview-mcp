@@ -3,8 +3,10 @@ import { jsonResult } from './_format.js';
 import * as core from '../core/chart.js';
 
 export function registerChartTools(server) {
-  server.tool('chart_get_state', 'Get current chart state (symbol, timeframe, chart type, indicators)', {}, async () => {
-    try { return jsonResult(await core.getState()); }
+  server.tool('chart_get_state', 'Get current chart state (symbol, timeframe, chart type, indicators)', {
+    chart_index: z.coerce.number().int().min(0).optional().describe('Pane index in a multi-chart layout (0 = first pane, from pane_list). Omit for the active pane.'),
+  }, async ({ chart_index }) => {
+    try { return jsonResult(await core.getState({ chart_index })); }
     catch (err) { return jsonResult({ success: false, error: err.message }, true); }
   });
 
@@ -34,8 +36,9 @@ export function registerChartTools(server) {
     indicator: z.string().describe('Full indicator name: "Relative Strength Index", "MACD", "Volume", "Moving Average", "Bollinger Bands", "Moving Average Exponential". Short names like RSI/EMA do NOT work.'),
     entity_id: z.string().optional().describe('Entity ID to remove (from chart_get_state). Required for remove.'),
     inputs: z.string().optional().describe('JSON string of input overrides for the indicator (e.g., \'{"length": 20}\')'),
-  }, async ({ action, indicator, entity_id, inputs }) => {
-    try { return jsonResult(await core.manageIndicator({ action, indicator, entity_id, inputs })); }
+    chart_index: z.coerce.number().int().min(0).optional().describe('Pane index in a multi-chart layout (0 = first pane, from pane_list). Omit to target the active pane. Use this to add/remove on a specific pane reliably.'),
+  }, async ({ action, indicator, entity_id, inputs, chart_index }) => {
+    try { return jsonResult(await core.manageIndicator({ action, indicator, entity_id, inputs, chart_index })); }
     catch (err) { return jsonResult({ success: false, error: err.message }, true); }
   });
 
