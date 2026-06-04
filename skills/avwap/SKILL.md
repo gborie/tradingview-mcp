@@ -25,6 +25,33 @@ Typical invocations:
 The anchor is **per-symbol** — MU's earnings/swing are not DELL's. Always resolve the
 anchor against the symbol you end up on (Step 1), never carry one symbol's date to another.
 
+## Two approaches — pick first
+
+**A) Auto indicator — recommended for "earnings VWAP on any ticker".**
+Use the bundled Pine study [`EarningsAnchoredVWAP.pine`](EarningsAnchoredVWAP.pine) (saved
+in the user's TradingView account as **"Earnings-Anchored VWAP"**). It reads the *current
+symbol's own* earnings via `request.earnings()` and **re-anchors automatically on every
+symbol switch** — add it once per pane and never touch it again. Best when panes are
+symbol-linked: clicking any watchlist ticker shows that ticker's earnings VWAP.
+
+- `request.earnings` already fires on the **post-release session** (the bar after an
+  after-hours report), so the reaction-day anchor is automatic — do NOT add an extra +1
+  shift (that double-shifts to the day after; there's an off-by-default toggle for the
+  rare symbol whose data lands a day early).
+- Draws only the most recent leg (single clean line), with ±σ bands.
+- Caveats: only as good as TV's earnings data — missing/odd for some small or foreign
+  tickers, in which case no line draws (use approach B for those). Verify the anchor on a
+  known symbol before trusting it.
+- **Install:** open the Pine editor, `pine_open` "Earnings-Anchored VWAP" (or paste the
+  `.pine` with `pine_set_source`), `pine_smart_compile`, then click the editor's
+  **"Add to chart"** button with the target pane active; repeat per pane. (`createStudy`
+  by name does not work for user Pine scripts — the editor "Add to chart" is the reliable
+  path. `pine_smart_compile` only *saves* the script; it does not attach it.)
+
+**B) Manual fixed anchor — for a specific date, a swing/YTD anchor, or when TV's earnings
+data is wrong/missing.** Places the built-in "Anchored VWAP" at an exact `start_time`.
+Follow the steps below.
+
 ## Step 0: Read the layout
 
 Call `pane_list` first. It returns each pane's `index`, `symbol`, and `resolution`.
@@ -105,6 +132,15 @@ rejects the param, the server predates that change and must be restarted/updated
   if panes are symbol-synced, the AVWAP follows clicks in the watchlist automatically.
 - **Bands**: the default study shows ±1σ bands. Leave as-is unless the user asks to change
   multipliers (`bands_multiplier*`) or disable bands (`calculate_stDev*`).
+- **Symbol drift (important)**: clicking panes to activate them, or a symbol-linked layout,
+  can change the active symbol mid-operation. Always re-assert and re-confirm the symbol
+  with `pane_list` *immediately before* measuring an earnings date or anchoring — never
+  trust a symbol you set several calls earlier. (A wrong-symbol read once made an
+  earnings-date check report the neighbouring chart's dates.)
+- **Trust TV's data, verify the date**: for the auto indicator, the earnings date is
+  whatever `request.earnings` returns, which may differ from a web search. When precision
+  matters, confirm by labelling the earnings bar (`label.new` on the earnings bar with
+  `str.format_time`) and reading it back with `data_get_pine_labels`.
 
 ## Cleanup
 
